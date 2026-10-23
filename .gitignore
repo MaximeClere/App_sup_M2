@@ -1,0 +1,16 @@
+# Donnees locales du projet (ne jamais versionner)
+/data/
+
+# Artefacts generes
+/artifacts/*
+!/artifacts/.gitkeep
+/submissions/*
+!/submissions/.gitkeep
+
+# Environnement et fichiers Python temporaires
+.venv/
+venv/
+.env
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
