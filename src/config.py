@@ -1,4 +1,4 @@
-"""Loading and validation of experiment configuration."""
+"""Lecture et validation de la configuration des expériences."""
 
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ SUPPORTED_MODELS = (
 
 @dataclass(frozen=True)
 class PreprocessingConfig:
+    """Regroupe les options de prétraitement des variables."""
+
     scale_numeric: bool = True
     add_missing_indicators: bool = True
     log1p_columns: tuple[str, ...] = ()
@@ -29,6 +31,8 @@ class PreprocessingConfig:
 
 @dataclass(frozen=True)
 class ExperimentConfig:
+    """Regroupe les paramètres nécessaires à une expérience."""
+
     config_path: Path
     data_dir: Path
     artifacts_dir: Path
@@ -42,9 +46,12 @@ class ExperimentConfig:
     master_seed: int
     preprocessing: PreprocessingConfig
     run_name: str | None = None
+    validation_method: str = "holdout"
+    n_splits: int = 5
 
 
 def _project_path(value: Any, field_name: str) -> Path:
+    """Résout un chemin relatif depuis la racine du projet."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"'{field_name}' doit être un chemin non vide.")
     path = Path(value).expanduser()
@@ -54,6 +61,7 @@ def _project_path(value: Any, field_name: str) -> Path:
 
 
 def _parse_preprocessing(raw: Any) -> PreprocessingConfig:
+    """Construit les options de prétraitement depuis le JSON."""
     if not isinstance(raw, dict):
         raise ValueError("'preprocessing' doit être un objet JSON.")
 
@@ -97,7 +105,7 @@ def _parse_preprocessing(raw: Any) -> PreprocessingConfig:
 
 
 def load_config(config_path: str | Path) -> ExperimentConfig:
-    """Read a JSON config and validate fields used by the training scripts."""
+    """Lit et valide un fichier de configuration JSON."""
     path = Path(config_path).expanduser()
     if not path.is_absolute():
         path = PROJECT_ROOT / path
@@ -122,7 +130,9 @@ def load_config(config_path: str | Path) -> ExperimentConfig:
         "metric",
         "model",
         "model_params",
+        "validation_method",
         "validation_size",
+        "n_splits",
         "master_seed",
         "preprocessing",
         "run_name",
@@ -167,6 +177,16 @@ def load_config(config_path: str | Path) -> ExperimentConfig:
     ):
         raise ValueError("'validation_size' doit être strictement entre 0 et 1.")
 
+    validation_method = raw.get("validation_method", "holdout")
+    if validation_method not in ("holdout", "stratified_kfold"):
+        raise ValueError(
+            "'validation_method' doit être 'holdout' ou 'stratified_kfold'."
+        )
+
+    n_splits = raw.get("n_splits", 5)
+    if isinstance(n_splits, bool) or not isinstance(n_splits, int) or n_splits < 2:
+        raise ValueError("'n_splits' doit être un entier supérieur ou égal à 2.")
+
     master_seed = raw.get("master_seed", 42)
     if (
         isinstance(master_seed, bool)
@@ -198,12 +218,14 @@ def load_config(config_path: str | Path) -> ExperimentConfig:
         validation_size=float(validation_size),
         master_seed=master_seed,
         preprocessing=_parse_preprocessing(raw.get("preprocessing", {})),
+        validation_method=validation_method,
+        n_splits=n_splits,
         run_name=run_name,
     )
 
 
 def new_run_name(config: ExperimentConfig) -> str:
-    """Return a filesystem-safe, unique name for a saved experiment."""
+    """Crée un nom de dossier unique pour une exécution."""
     prefix = config.run_name or config.model_name
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     return f"{prefix}_{timestamp}"

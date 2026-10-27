@@ -62,7 +62,9 @@ Dans le fichier de configuration choisi, régler notamment :
 - model : logistic_regression, random_forest, extra_trees ou xgboost.
 - model_params : paramètres scikit-learn compatibles avec le modèle choisi. Consulter les paramètres par défaut et le registre dans src/models.py. Quand le modèle change, remplacer aussi model_params par un objet adapté.
 - master_seed : graine maîtresse utilisée pour le découpage et les modèles stochastiques.
-- validation_size : proportion réservée à la validation (0.2 par défaut), stratifiée.
+- validation_method : holdout (défaut) ou stratified_kfold.
+- validation_size : proportion réservée en mode holdout (0.2 par défaut).
+- n_splits : nombre de plis en mode stratified_kfold (5 par défaut).
 - preprocessing.scale_numeric : standardisation des variables continues.
 - preprocessing.add_missing_indicators : indicateurs pour les variables numériques manquantes.
 - preprocessing.log1p_columns : liste vide par défaut; ne renseigner que des colonnes continues numériques non négatives.
@@ -86,7 +88,9 @@ Exemple de configuration compatible avec ExtraTrees :
     "min_samples_leaf": 2,
     "n_jobs": -1
   },
+  "validation_method": "holdout",
   "validation_size": 0.2,
+  "n_splits": 5,
   "master_seed": 42,
   "preprocessing": {
     "scale_numeric": false,
@@ -130,9 +134,9 @@ Avec une configuration alternative :
 .\.venv\Scripts\python.exe -m src.train --config config-extra-trees.json
 ~~~
 
-Le programme crée un découpage aléatoire stratifié à partir de master_seed. Le prétraitement est ajusté dans la pipeline uniquement sur la partition d’entraînement, puis les probabilités de accepted = 1 sont évaluées sur la partition de validation avec ROC-AUC.
+Avec validation_method: "holdout", le programme crée un découpage stratifié à partir de master_seed et utilise validation_size pour choisir sa taille. Avec validation_method: "stratified_kfold", il entraîne et évalue un modèle sur chaque pli stratifié; n_splits indique le nombre de plis. Dans les deux modes, le prétraitement est ajusté uniquement sur les lignes d’entraînement de chaque partition, puis le ROC-AUC des probabilités de accepted = 1 est calculé. Chaque classe doit contenir au moins n_splits exemples pour la validation croisée.
 
-Chaque exécution écrit un sous-dossier horodaté sous artifacts/. Il contient la configuration copiée, le ROC-AUC et les métadonnées, les prédictions de validation et le modèle entraîné sur la partie d’entraînement. Comparer validation_score dans metrics.json entre expériences. Le dossier artifacts/ est ignoré par Git.
+Chaque exécution écrit un sous-dossier horodaté sous artifacts/. En mode holdout, il contient la configuration, validation_score, les prédictions et le modèle ajusté sur la partition d’entraînement. En mode stratified_kfold, metrics.json contient le ROC-AUC moyen dans validation_score et chaque score dans fold_validation_scores; aucun modèle ni fichier de prédictions par pli n’est enregistré. Le dossier artifacts/ est ignoré par Git.
 
 ## 6. Choisir un modèle et produire une soumission
 

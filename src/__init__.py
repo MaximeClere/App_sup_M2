@@ -1,1 +1,1 @@
-"""Reproducible tools for the US mortgage-application classification challenge."""
+"""Outils reproductibles de classification des demandes de prêt immobilier."""
