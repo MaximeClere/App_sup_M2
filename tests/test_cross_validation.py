@@ -97,6 +97,14 @@ class CrossValidationTests(unittest.TestCase):
             project_config = load_config(Path(__file__).parents[1] / "config.json")
             self.assertEqual(project_config.validation_method, "holdout")
             self.assertEqual(project_config.n_splits, 5)
+            self.assertEqual(project_config.preprocessing.method, "feature_engineering")
+
+            config_path.write_text(
+                json.dumps({"preprocessing": {"method": "default"}}),
+                encoding="utf-8",
+            )
+            config = load_config(config_path)
+            self.assertEqual(config.preprocessing.method, "default")
 
             config_path.write_text(
                 json.dumps(

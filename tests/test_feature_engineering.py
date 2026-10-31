@@ -7,7 +7,13 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from src.preprocessing import FeatureEngineeringTransformer
+from src.config import PreprocessingConfig
+from src.preprocessing import (
+    LTV_COLUMN,
+    NUMERIC_COLUMNS,
+    FeatureEngineeringTransformer,
+    build_preprocessor,
+)
 
 
 class FeatureEngineeringTests(unittest.TestCase):
@@ -85,6 +91,37 @@ class FeatureEngineeringTests(unittest.TestCase):
         transformed_validation = transformer.transform(validation)
         self.assertEqual(list(transformed_validation.columns), list(transformed_training.columns))
         self.assertAlmostEqual(transformer.ltv_mean_, expected_mean)
+
+    def test_preprocessing_method_selects_engineered_or_default_pipeline(self) -> None:
+        """Vérifie que la configuration conserve ou applique les transformations dédiées."""
+        features = pd.DataFrame(
+            {column: range(1, 7) for column in NUMERIC_COLUMNS}
+        )
+        features[LTV_COLUMN] = [np.nan, 80, 90, 100, 101, 120]
+        features["debt_to_income_ratio"] = ["<20%", "25", "36", "49", "50%-60%", pd.NA]
+        features["co-applicant_age"] = ["25-34", pd.NA, "35-44", "45-54", "25-34", "35-44"]
+
+        engineered = build_preprocessor(
+            features.columns, PreprocessingConfig(method="feature_engineering")
+        )
+        default = build_preprocessor(
+            features.columns, PreprocessingConfig(method="default")
+        )
+        engineered_columns = {
+            name: columns for name, _, columns in engineered.named_steps["columns"].transformers
+        }
+        default_columns = {
+            name: columns for name, _, columns in default.named_steps["columns"].transformers
+        }
+
+        self.assertIn("feature_engineering", engineered.named_steps)
+        self.assertNotIn("feature_engineering", default.named_steps)
+        self.assertNotIn(LTV_COLUMN, engineered_columns["numeric"])
+        self.assertIn(LTV_COLUMN, default_columns["numeric"])
+        self.assertNotIn("co-applicant_age", engineered_columns["categorical"])
+        self.assertIn("co-applicant_age", default_columns["categorical"])
+        self.assertEqual(engineered.fit_transform(features).shape[0], len(features))
+        self.assertEqual(default.fit_transform(features).shape[0], len(features))
 
 
 if __name__ == "__main__":

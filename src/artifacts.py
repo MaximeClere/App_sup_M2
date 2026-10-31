@@ -92,6 +92,7 @@ def save_training_artifacts(
         "master_seed": config.master_seed,
         "validation_size": config.validation_size,
         "preprocessing": {
+            "method": config.preprocessing.method,
             "scale_numeric": config.preprocessing.scale_numeric,
             "add_missing_indicators": config.preprocessing.add_missing_indicators,
             "log1p_columns": list(config.preprocessing.log1p_columns),
@@ -133,6 +134,7 @@ def save_cross_validation_artifacts(
         "model_params_resolved": model.named_steps["classifier"].get_params(deep=False),
         "master_seed": config.master_seed,
         "preprocessing": {
+            "method": config.preprocessing.method,
             "scale_numeric": config.preprocessing.scale_numeric,
             "add_missing_indicators": config.preprocessing.add_missing_indicators,
             "log1p_columns": list(config.preprocessing.log1p_columns),
@@ -175,6 +177,7 @@ def save_prediction_artifacts(
         "metric": config.metric,
         "master_seed": config.master_seed,
         "preprocessing": {
+            "method": config.preprocessing.method,
             "scale_numeric": config.preprocessing.scale_numeric,
             "add_missing_indicators": config.preprocessing.add_missing_indicators,
             "log1p_columns": list(config.preprocessing.log1p_columns),

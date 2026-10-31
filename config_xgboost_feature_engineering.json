@@ -10,8 +10,8 @@
     "objective": "binary:logistic",
     "eval_metric": "logloss",
     "n_estimators": 500,
-    "learning_rate": 0.05,
-    "max_depth": 5,
+    "learning_rate": 0.01,
+    "max_depth": 15,
     "subsample": 0.8,
     "colsample_bytree": 0.8,
     "reg_lambda": 1.0,
@@ -26,7 +26,26 @@
     "scale_numeric": true,
     "add_missing_indicators": true,
     "log1p_columns": [],
-    "missing_category_token": "__MISSING__"
+    "missing_category_token": "__MISSING__",
+    "method": "default"
   },
-  "run_name": "xgboost_feature_engineering"
+  "run_name": "xgboost_feature_engineering",
+  "hyperparameter_search": {
+    "method": "grid",
+    "parameters": {
+      "max_depth": [
+        10,
+        12,
+        15,
+        20
+      ],
+      "learning_rate": [
+        0.001,
+        0.01,
+        0.1
+      ]
+    },
+    "cv": 5,
+    "n_jobs": 1
+  }
 }

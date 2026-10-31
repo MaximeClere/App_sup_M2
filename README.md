@@ -38,11 +38,12 @@ Modifier config.json avant chaque expérience :
 - **validation_method** : holdout (défaut) ou stratified_kfold.
 - **validation_size** : proportion de validation en mode holdout (20 % par défaut).
 - **n_splits** : nombre de plis en mode stratified_kfold (5 par défaut).
+- **preprocessing.method** : `feature_engineering` pour les transformations créées, ou `default` pour revenir au prétraitement initial sans suppression de colonnes ni regroupements/imputations dédiés.
 - **preprocessing.scale_numeric** : active ou désactive la standardisation des variables numériques.
 - **preprocessing.add_missing_indicators** : ajoute ou non des indicateurs pour les valeurs manquantes.
 - **preprocessing.log1p_columns** : liste des variables numériques non négatives auxquelles appliquer log(1+x), par exemple ["loan_amount", "income"].
 
-L’imputation et l’encodage des catégories sont obligatoires pour les modèles pris en charge. Les codes numériques, les variables géographiques, les tranches d’âge et debt_to_income_ratio sont traités comme des catégories. id est conservé pour la soumission, jamais comme variable explicative.
+Les deux choix conservent l’imputation et l’encodage requis par les modèles. `default` conserve `co-applicant_age` et traite le LTV comme une variable numérique; `feature_engineering` applique les transformations décrites dans le notebook. id est conservé pour la soumission, jamais comme variable explicative.
 
 La configuration [config_xgboost_feature_engineering.json](config_xgboost_feature_engineering.json) lance XGBoost avec validation stratifiée en cinq plis. Elle lit les fichiers bruts; le prétraitement partagé apprend ses statistiques dans chaque pli. Les exports `data_config_1.csv` et `test_config_1.csv` ne sont pas utilisés pour cette validation.
 
@@ -57,6 +58,14 @@ Depuis la racine du dépôt :
 ~~~powershell
 .\.venv\Scripts\python.exe -m src.train --config config.json
 ~~~
+
+Pour lancer la recherche d'hyperparamètres configurée dans le fichier XGBoost :
+
+~~~powershell
+.\.venv\Scripts\python.exe -m src.hyperparameter_search --config config_xgboost_feature_engineering.json
+~~~
+
+Le bloc `hyperparameter_search` accepte `method: "grid"` ou `"random"`, une liste de valeurs candidates par paramètre, le nombre de plis `cv`, et `n_iter` pour la recherche aléatoire. Les noms simples comme `max_depth` ciblent le classifieur; les noms scikit-learn préfixés restent acceptés. La recherche produit `search_results.csv` et `metrics.json` dans un nouveau dossier sous `artifacts/`. Pour la soumission, reporter les meilleurs paramètres dans `model_params`, puis utiliser le même fichier avec `src.predict`.
 
 En mode holdout, le programme réserve une partie de train.csv pour la validation. En mode stratified_kfold, il entraîne et évalue un modèle pour chacun des plis, en conservant la proportion des classes. Dans les deux cas, le prétraitement est ajusté uniquement sur les lignes d'entraînement du pli. Le ROC-AUC est calculé sur les probabilités de accepted = 1.
 
@@ -94,7 +103,7 @@ Les CSV de configuration sont des exports lisibles. La validation croisée et l'
 - src/train.py : entraînement et évaluation sur validation.
 - src/predict.py : réentraînement complet et prédiction du jeu test.
 - src/artifacts.py : sauvegarde des modèles, prédictions et métadonnées.
-- src/hyperparameter_search.py : emplacement réservé; la recherche automatique n'est pas encore implémentée.
+- src/hyperparameter_search.py : recherche par grille ou échantillonnage aléatoire des hyperparamètres configurés.
 - notebooks/exploration_donnees.ipynb : exploration descriptive du train.
 - notebooks/data_engineering_config_1.ipynb : transformations et exports `data_config_1.csv` / `test_config_1.csv`.
 - docs/guide_execution.md : procédure d'utilisation détaillée.

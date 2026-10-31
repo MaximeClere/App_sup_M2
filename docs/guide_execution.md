@@ -65,11 +65,12 @@ Dans le fichier de configuration choisi, régler notamment :
 - validation_method : holdout (défaut) ou stratified_kfold.
 - validation_size : proportion réservée en mode holdout (0.2 par défaut).
 - n_splits : nombre de plis en mode stratified_kfold (5 par défaut).
+- preprocessing.method : `feature_engineering` pour les transformations dédiées ou `default` pour le prétraitement initial.
 - preprocessing.scale_numeric : standardisation des variables continues.
 - preprocessing.add_missing_indicators : indicateurs pour les variables numériques manquantes.
 - preprocessing.log1p_columns : liste vide par défaut; ne renseigner que des colonnes continues numériques non négatives.
 
-L’imputation médiane des variables continues, le traitement des catégories manquantes et l’encodage one-hot sont nécessaires au pipeline et restent actifs. id et accepted ne sont pas des variables explicatives. La métrique prise en charge est ROC-AUC.
+Les deux méthodes gardent l’imputation, le traitement des catégories manquantes et l’encodage one-hot. `default` conserve les colonnes brutes, dont `co-applicant_age`, et garde le LTV numérique; `feature_engineering` supprime `co-applicant_age`, regroupe le DTI et catégorise le LTV. Le choix s’applique aussi à la recherche d’hyperparamètres et à la prédiction. id et accepted ne sont pas des variables explicatives. La métrique prise en charge est ROC-AUC.
 
 Exemple de configuration compatible avec ExtraTrees :
 
@@ -93,6 +94,7 @@ Exemple de configuration compatible avec ExtraTrees :
   "n_splits": 5,
   "master_seed": 42,
   "preprocessing": {
+    "method": "default",
     "scale_numeric": false,
     "add_missing_indicators": true,
     "log1p_columns": [],
@@ -134,6 +136,14 @@ Avec une configuration alternative :
 .\.venv\Scripts\python.exe -m src.train --config config-extra-trees.json
 ~~~
 
+Pour rechercher les hyperparamètres décrits dans `hyperparameter_search` du fichier XGBoost :
+
+~~~powershell
+.\.venv\Scripts\python.exe -m src.hyperparameter_search --config config_xgboost_feature_engineering.json
+~~~
+
+`method` vaut `grid` pour essayer toutes les combinaisons de `parameters`, ou `random` pour tirer `n_iter` combinaisons parmi les valeurs listées. `cv` choisit le nombre de plis et `n_jobs` le parallélisme externe. Les noms simples comme `max_depth` ciblent le modèle; le préfixe `classifier__` est aussi accepté. La recherche garde le prétraitement dans la pipeline, donc il est ajusté séparément dans chaque pli. Les résultats sont enregistrés dans `artifacts/` (`metrics.json` et `search_results.csv`). Reporter `best_params` de `metrics.json` dans `model_params` avant de lancer la prédiction finale.
+
 Avec validation_method: "holdout", le programme crée un découpage stratifié à partir de master_seed et utilise validation_size pour choisir sa taille. Avec validation_method: "stratified_kfold", il entraîne et évalue un modèle sur chaque pli stratifié; n_splits indique le nombre de plis. Dans les deux modes, le prétraitement est ajusté uniquement sur les lignes d’entraînement de chaque partition, puis le ROC-AUC des probabilités de accepted = 1 est calculé. Chaque classe doit contenir au moins n_splits exemples pour la validation croisée.
 
 Chaque exécution écrit un sous-dossier horodaté sous artifacts/. En mode holdout, il contient la configuration, validation_score, les prédictions et le modèle ajusté sur la partition d’entraînement. En mode stratified_kfold, metrics.json contient le ROC-AUC moyen dans validation_score et chaque score dans fold_validation_scores; aucun modèle ni fichier de prédictions par pli n’est enregistré. Le dossier artifacts/ est ignoré par Git.
@@ -164,5 +174,5 @@ Ouvrir le CSV généré et vérifier les colonnes id,accepted, l’absence de va
 - Le dépôt doit contenir le code, les configurations partageables, ce README et le notebook, mais pas les données ni les modèles entraînés.
 - Pour la restitution, indiquer dans le rapport le lien du dépôt et la branche finale utilisée.
 
-Le fichier src/hyperparameter_search.py est réservé à une prochaine étape; aucune recherche automatique par grille ou Optuna n’est implémentée à ce stade.
+La recherche d’hyperparamètres est disponible dans src/hyperparameter_search.py. Elle propose une grille exhaustive ou un échantillonnage aléatoire de valeurs discrètes définies dans le JSON; les distributions continues ne sont pas configurables dans ce format.
 

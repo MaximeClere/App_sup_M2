@@ -15,9 +15,11 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from src.config import PreprocessingConfig
 
 
-# Mesures continues du schéma; les autres variables explicatives sont catégorielles.
+# Mesures continues du schéma brut; les autres variables explicatives sont catégorielles.
+LTV_COLUMN = "loan_to_value_ratio"
 NUMERIC_COLUMNS = (
     "loan_amount",
+    LTV_COLUMN,
     "property_value",
     "income",
     "loan_term",
@@ -31,7 +33,9 @@ NUMERIC_COLUMNS = (
     "tract_median_age_of_housing_units",
 )
 
-LTV_COLUMN = "loan_to_value_ratio"
+ENGINEERED_NUMERIC_COLUMNS = tuple(
+    column for column in NUMERIC_COLUMNS if column != LTV_COLUMN
+)
 DROP_COLUMNS = ("co-applicant_age",)
 MODE_IMPUTE_COLUMNS = (
     "county_code",
@@ -300,16 +304,22 @@ def build_preprocessor(
             + ", ".join(sorted(missing_numeric))
         )
 
-    invalid_log_columns = set(config.log1p_columns) - set(NUMERIC_COLUMNS)
+    numeric_schema = (
+        NUMERIC_COLUMNS
+        if config.method == "default"
+        else ENGINEERED_NUMERIC_COLUMNS
+    )
+    invalid_log_columns = set(config.log1p_columns) - set(numeric_schema)
     if invalid_log_columns:
         raise ValueError(
             "log1p_columns doit uniquement contenir des variables numériques connues : "
             + ", ".join(sorted(invalid_log_columns))
         )
 
-    feature_columns = [name for name in feature_columns if name not in DROP_COLUMNS]
-    numeric_columns = [name for name in feature_columns if name in NUMERIC_COLUMNS]
-    categorical_columns = [name for name in feature_columns if name not in NUMERIC_COLUMNS]
+    if config.method == "feature_engineering":
+        feature_columns = [name for name in feature_columns if name not in DROP_COLUMNS]
+    numeric_columns = [name for name in feature_columns if name in numeric_schema]
+    categorical_columns = [name for name in feature_columns if name not in numeric_schema]
 
     numeric_steps = [
         ("imputer", SimpleImputer(
@@ -338,10 +348,13 @@ def build_preprocessor(
         verbose_feature_names_out=False,
     )
 
-    return Pipeline(
-        steps=[
-            ("feature_engineering", FeatureEngineeringTransformer()),
+    steps = []
+    if config.method == "feature_engineering":
+        steps.append(("feature_engineering", FeatureEngineeringTransformer()))
+    steps.extend(
+        [
             ("log1p", Log1pTransformer(config.log1p_columns)),
             ("columns", column_transformer),
         ]
     )
+    return Pipeline(steps=steps)

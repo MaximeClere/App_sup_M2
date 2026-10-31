@@ -27,6 +27,18 @@ class PreprocessingConfig:
     add_missing_indicators: bool = True
     log1p_columns: tuple[str, ...] = ()
     missing_category_token: str = "__MISSING__"
+    method: str = "feature_engineering"
+
+
+@dataclass(frozen=True)
+class HyperparameterSearchConfig:
+    """Décrit les paramètres à explorer et le type de recherche."""
+
+    method: str
+    parameters: dict[str, list[Any]]
+    cv: int
+    n_iter: int
+    n_jobs: int
 
 
 @dataclass(frozen=True)
@@ -48,6 +60,7 @@ class ExperimentConfig:
     run_name: str | None = None
     validation_method: str = "holdout"
     n_splits: int = 5
+    hyperparameter_search: HyperparameterSearchConfig | None = None
 
 
 def _project_path(value: Any, field_name: str) -> Path:
@@ -70,6 +83,7 @@ def _parse_preprocessing(raw: Any) -> PreprocessingConfig:
         "add_missing_indicators",
         "log1p_columns",
         "missing_category_token",
+        "method",
     }
     unknown = set(raw) - allowed
     if unknown:
@@ -83,6 +97,12 @@ def _parse_preprocessing(raw: Any) -> PreprocessingConfig:
         raise ValueError("'preprocessing.scale_numeric' doit être booléen.")
     if not isinstance(add_missing, bool):
         raise ValueError("'preprocessing.add_missing_indicators' doit être booléen.")
+
+    method = raw.get("method", "feature_engineering")
+    if method not in ("feature_engineering", "default"):
+        raise ValueError(
+            "'preprocessing.method' doit être 'feature_engineering' ou 'default'."
+        )
 
     log_columns = raw.get("log1p_columns", [])
     if not isinstance(log_columns, list) or any(
@@ -101,6 +121,63 @@ def _parse_preprocessing(raw: Any) -> PreprocessingConfig:
         add_missing_indicators=add_missing,
         log1p_columns=tuple(log_columns),
         missing_category_token=missing_token,
+        method=method,
+    )
+
+
+def _parse_hyperparameter_search(raw: Any) -> HyperparameterSearchConfig | None:
+    """Lit les options facultatives de recherche d'hyperparamètres."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("'hyperparameter_search' doit être un objet JSON.")
+
+    allowed = {"method", "parameters", "cv", "n_iter", "n_jobs"}
+    unknown = set(raw) - allowed
+    if unknown:
+        raise ValueError(
+            "Options de recherche inconnues : " + ", ".join(sorted(unknown))
+        )
+
+    method = raw.get("method", "grid")
+    if method not in ("grid", "random"):
+        raise ValueError("'hyperparameter_search.method' doit être 'grid' ou 'random'.")
+
+    parameters = raw.get("parameters")
+    if not isinstance(parameters, dict) or not parameters:
+        raise ValueError("'hyperparameter_search.parameters' doit être un objet non vide.")
+    if any(
+        not isinstance(name, str)
+        or not name
+        or not isinstance(values, list)
+        or not values
+        for name, values in parameters.items()
+    ):
+        raise ValueError(
+            "Chaque paramètre de recherche doit avoir un nom et une liste de valeurs non vide."
+        )
+
+    cv = raw.get("cv", 3)
+    if isinstance(cv, bool) or not isinstance(cv, int) or cv < 2:
+        raise ValueError("'hyperparameter_search.cv' doit être un entier supérieur ou égal à 2.")
+    n_iter = raw.get("n_iter", 10)
+    if isinstance(n_iter, bool) or not isinstance(n_iter, int) or n_iter < 1:
+        raise ValueError("'hyperparameter_search.n_iter' doit être un entier positif.")
+    n_jobs = raw.get("n_jobs", 1)
+    if (
+        isinstance(n_jobs, bool)
+        or not isinstance(n_jobs, int)
+        or n_jobs == 0
+        or n_jobs < -1
+    ):
+        raise ValueError("'hyperparameter_search.n_jobs' doit valoir -1 ou un entier positif.")
+
+    return HyperparameterSearchConfig(
+        method=method,
+        parameters=dict(parameters),
+        cv=cv,
+        n_iter=n_iter,
+        n_jobs=n_jobs,
     )
 
 
@@ -135,6 +212,7 @@ def load_config(config_path: str | Path) -> ExperimentConfig:
         "n_splits",
         "master_seed",
         "preprocessing",
+        "hyperparameter_search",
         "run_name",
     }
     unknown = set(raw) - allowed
@@ -220,6 +298,9 @@ def load_config(config_path: str | Path) -> ExperimentConfig:
         preprocessing=_parse_preprocessing(raw.get("preprocessing", {})),
         validation_method=validation_method,
         n_splits=n_splits,
+        hyperparameter_search=_parse_hyperparameter_search(
+            raw.get("hyperparameter_search")
+        ),
         run_name=run_name,
     )
 
