@@ -3,105 +3,131 @@ import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
 import lightgbm as lgb
+from itertools import combinations
 import warnings
 warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
 
-# fonction de Feature Engineering
-def create_features(df):
+def get_base_data():
+    train = pd.read_csv('regression/data/train.csv')
+    test = pd.read_csv('regression/data/test.csv')
+    
+    # Features de base + celles validées à l'étape précédente
+    for df in [train, test]:
+        df['Is_Home_Country'] = (df['Country'] == df['MeetCountry']).astype(str)
+        df['Sex_Equipment'] = df['Sex'].astype(str) + "_" + df['Equipment'].astype(str)
+        df['WeightClass_Num'] = df['WeightClassKg'].astype(str).str.extract(r'(\d+\.?\d*)').astype(float)
+        df['Weight_Diff'] = df['WeightClass_Num'] - df['BodyweightKg']
+        df['Weight_Age_Ratio'] = df['BodyweightKg'] / (df['Age'] + 1)
+        
+    return train, test
+
+# Définition des "Paquets" de features
+def apply_feature_packs(df, packs_to_apply):
     df = df.copy()
+    new_cat_features = []
     
-    # avantage à domicile
-    df['Is_Home_Country'] = (df['Country'] == df['MeetCountry']).astype(str)
-    
-    # interaction Sexe et Équipement : l'impact du matériel (ex: maillot de force) varie énormément selon le sexe
-    df['Sex_Equipment'] = df['Sex'].astype(str) + "_" + df['Equipment'].astype(str)
-    
-    # poids brut vs Catégorie de poids
-    # Extraction de la valeur numérique de la catégorie (ex: "93+" -> 93.0, "83" -> 83.0)
-    df['WeightClass_Num'] = df['WeightClassKg'].astype(str).str.extract(r'(\d+\.?\d*)').astype(float)
-    
-    # différence de poids : indique si l'athlète a fait un "cutting" extrême ou s'il est léger pour sa catégorie
-    df['Weight_Diff'] = df['WeightClass_Num'] - df['BodyweightKg']
-    
-    # indicateur composite de densité corporelle et d'âge
-    df['Weight_Age_Ratio'] = df['BodyweightKg'] / (df['Age'] + 1) # +1 pour éviter division par 0
-    
-    return df
+    # paqueet 1 : Variables Géographiques locales
+    if 'Geo' in packs_to_apply:
+        df['Is_Home_State'] = (df['State'] == df['MeetState']).astype(str)
+        df['Travel_Type'] = df['Is_Home_Country'] + "_" + df['Is_Home_State']
+        new_cat_features.extend(['Is_Home_State', 'Travel_Type'])
+        
+    # paquet 2 : Physiques et Interactions
+    if 'Physics' in packs_to_apply:
+        # Proxy d'IMC (si on considère WeightClass comme un proxy de carrure)
+        df['Pseudo_BMI'] = df['BodyweightKg'] / ((df['WeightClass_Num'] + 10) ** 2)
+        # Ratio Poids / Année de compétition (évolution temporelle des physiques)
+        df['Weight_Year_Ratio'] = df['BodyweightKg'] / (df['MeetYear'] - 1970)
+        
+    # paquet 3 : Fréquences d'apparition (Popularité)
+    if 'Freq' in packs_to_apply:
+        # Permet au modèle de différencier une fédération mondiale d'une fédération locale
+        freq_fed = df['Federation'].value_counts()
+        df['Fed_Popularity'] = df['Federation'].map(freq_fed)
+        freq_country = df['Country'].value_counts()
+        df['Country_Popularity'] = df['Country'].map(freq_country)
+        
+    return df, new_cat_features
 
-# chargement des données
-train = pd.read_csv('regression/data/train.csv')
-test = pd.read_csv('regression/data/test.csv')
-
+train_base, test_base = get_base_data()
 target = 'TotalKg'
 id_col = 'id'
 
-# application du Feature Engineering avant séparation
-train = create_features(train)
-test = create_features(test)
-
-X = train.drop(columns=[target, id_col])
-y = train[target]
-X_test_submission = test.drop(columns=[id_col])
-
-# variables catégorielles
-categorical_features = [
+base_cat_features = [
     'Sex', 'Equipment', 'AgeClass', 'BirthYearClass', 'WeightClassKg', 
     'Tested', 'Country', 'State', 'Federation', 'ParentFederation', 
-    'MeetCountry', 'MeetState', 'Sanctioned', 
-    'Is_Home_Country', 'Sex_Equipment' # Nouvelles features catégorielles
+    'MeetCountry', 'MeetState', 'Sanctioned', 'Is_Home_Country', 'Sex_Equipment'
 ]
 
-# Conversion en type "category"
-for col in categorical_features:
-    X[col] = X[col].astype('category')
-    X_test_submission[col] = X_test_submission[col].astype('category')
+# tester toutes les combinaisons de paquets
+packs_disponibles = ['Geo', 'Physics', 'Freq']
+toutes_combinaisons = []
+for i in range(1, len(packs_disponibles) + 1):
+    toutes_combinaisons.extend(combinations(packs_disponibles, i))
 
-# validation croisée
-n_splits = 5
-kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+best_rmse = float('inf')
+best_comb = None
+best_model = None # Pour extraire l'importance plus tard
 
-oof_predictions = np.zeros(len(X))
-test_predictions = np.zeros(len(X_test_submission))
+print("=== DEBUT DU GRID SEARCH DE FEATURES ===")
 
-for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
-    print(f"\n--- Entraînement du Fold {fold + 1}/{n_splits} ---")
+for combo in toutes_combinaisons:
+    combo_name = "+".join(combo)
+    print(f"\n--- Test de la combinaison : {combo_name} ---")
     
-    X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
-    y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+    # application des features
+    train_df, new_cats = apply_feature_packs(train_base, combo)
+    test_df, _ = apply_feature_packs(test_base, combo)
     
-    model = lgb.LGBMRegressor(
-        n_estimators=1000,
-        learning_rate=0.05,
-        random_state=42,
-        n_jobs=-1
-    )
+    cat_cols = base_cat_features + new_cats
+    for col in cat_cols:
+        train_df[col] = train_df[col].astype('category')
+        test_df[col] = test_df[col].astype('category')
+        
+    X = train_df.drop(columns=[target, id_col])
+    y = train_df[target]
+    X_test = test_df.drop(columns=[id_col])
     
-    # utilisation de eval_X et eval_y pour éviter le warning de dépréciation
-    model.fit(
-        X_train, y_train,
-        eval_X=X_val, eval_y=y_val,
-        callbacks=[
-            lgb.early_stopping(stopping_rounds=50, verbose=False),
-            lgb.log_evaluation(period=0)
-        ]
-    )
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    oof_preds = np.zeros(len(X))
+    test_preds = np.zeros(len(X_test))
     
-    val_preds = model.predict(X_val)
-    oof_predictions[val_idx] = val_preds
-    fold_rmse = np.sqrt(mean_squared_error(y_val, val_preds))
-    print(f"RMSE du Fold {fold + 1} : {fold_rmse:.2f} kg (Meilleurs arbres : {model.best_iteration_})")
+    # on stocke l'importance des features du dernier fold
+    feature_importances = np.zeros(X.shape[1])
     
-    test_predictions += model.predict(X_test_submission) / n_splits
+    for train_idx, val_idx in kf.split(X):
+        X_tr, X_va = X.iloc[train_idx], X.iloc[val_idx]
+        y_tr, y_va = y.iloc[train_idx], y.iloc[val_idx]
+        
+        model = lgb.LGBMRegressor(n_estimators=1000, learning_rate=0.05, random_state=42, n_jobs=-1)
+        model.fit(
+            X_tr, y_tr, eval_X=X_va, eval_y=y_va,
+            callbacks=[lgb.early_stopping(30, verbose=False), lgb.log_evaluation(0)]
+        )
+        
+        oof_preds[val_idx] = model.predict(X_va)
+        test_preds += model.predict(X_test) / 5
+        # Gain d'information accumulé par feature
+        feature_importances += model.booster_.feature_importance(importance_type='gain') / 5
+        
+    rmse = np.sqrt(mean_squared_error(y, oof_preds))
+    print(f">> RMSE (OOF) pour {combo_name} : {rmse:.3f} kg")
+    
+    # sauvegarde de la soumission pour cette combinaison
+    pd.DataFrame({id_col: test_base[id_col], target: test_preds}).to_csv(f'regression/results/sub_{combo_name}.csv', index=False)
+    
+    if rmse < best_rmse:
+        best_rmse = rmse
+        best_comb = combo_name
+        best_importances = feature_importances
+        best_features = X.columns
 
-# évaluation globale
-global_rmse = np.sqrt(mean_squared_error(y, oof_predictions))
 print(f"\n========================================")
-print(f"RMSE locale globale (OOF CV) avec Feature Engineering : {global_rmse:.2f} kg")
-print(f"========================================")
+print(f"Meilleure combinaison : {best_comb} avec {best_rmse:.3f} kg")
+print(f"========================================\n")
 
-submission = pd.DataFrame({
-    id_col: test[id_col],
-    target: test_predictions
-})
-submission.to_csv('regression/results/submission_lgbm_features.csv', index=False)
-print("Fichier de soumission 'submission_lgbm_features.csv' généré avec succès !")
+# Affichage du Top 15 Feature Importance (basé sur le Gain)
+importance_df = pd.DataFrame({'Feature': best_features, 'Gain': best_importances})
+importance_df = importance_df.sort_values(by='Gain', ascending=False).head(15)
+print("--- TOP 15 FEATURE IMPORTANCE (GAIN) ---")
+print(importance_df.to_string(index=False))
