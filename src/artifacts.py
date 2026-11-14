@@ -33,7 +33,14 @@ def _sha256(path: Path) -> str:
 def _package_versions() -> dict[str, str | None]:
     """Récupère les versions des bibliothèques utilisées."""
     versions: dict[str, str | None] = {}
-    for package in ("numpy", "pandas", "scikit-learn", "joblib", "xgboost"):
+    for package in (
+        "numpy",
+        "pandas",
+        "scikit-learn",
+        "joblib",
+        "xgboost",
+        "lightgbm",
+    ):
         try:
             versions[package] = version(package)
         except PackageNotFoundError:

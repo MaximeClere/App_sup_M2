@@ -7,11 +7,18 @@ import json
 from pathlib import Path
 import shutil
 
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, StratifiedKFold
+from scipy.stats import loguniform, randint, uniform
 
-from src.config import ExperimentConfig, load_config, new_run_name
-from src.data import load_competition_data
+from src.config import (
+    ExperimentConfig,
+    ParameterDistributionConfig,
+    load_config,
+    new_run_name,
+)
+from src.data import load_competition_data, sample_training_data
 from src.models import build_model_pipeline
 
 
@@ -22,11 +29,29 @@ def run_hyperparameter_search(config: ExperimentConfig) -> Path:
         raise ValueError("Ajoutez 'hyperparameter_search' au fichier de configuration.")
 
     data = load_competition_data(config)
+    if config.training_sample_size is not None:
+        data = sample_training_data(
+            data,
+            sample_size=config.training_sample_size,
+            master_seed=config.master_seed,
+        )
     estimator = build_model_pipeline(config, data.features.columns)
-    parameters = {
-        name if "__" in name else f"classifier__{name}": values
-        for name, values in search_config.parameters.items()
-    }
+    parameters = {}
+    for name, values in search_config.parameters.items():
+        parameter_name = name if "__" in name else f"classifier__{name}"
+        if isinstance(values, ParameterDistributionConfig):
+            if values.distribution == "uniform":
+                distribution = uniform(
+                    loc=values.low,
+                    scale=values.high - values.low,
+                )
+            elif values.distribution == "loguniform":
+                distribution = loguniform(a=values.low, b=values.high)
+            else:
+                distribution = randint(low=values.low, high=values.high)
+            parameters[parameter_name] = distribution
+        else:
+            parameters[parameter_name] = values
     folds = StratifiedKFold(
         n_splits=search_config.cv,
         shuffle=True,
@@ -61,7 +86,9 @@ def run_hyperparameter_search(config: ExperimentConfig) -> Path:
     )
 
     best_params = {
-        name.removeprefix("classifier__"): value
+        name.removeprefix("classifier__"): (
+            value.item() if isinstance(value, np.generic) else value
+        )
         for name, value in search.best_params_.items()
     }
     metadata = {

@@ -17,6 +17,7 @@ from src.data import (
     TrainValidationSplit,
     iter_stratified_folds,
     load_competition_data,
+    sample_training_data,
     split_train_validation,
 )
 from src.models import build_model_pipeline, positive_class_probabilities
@@ -44,6 +45,17 @@ def run_training(config: ExperimentConfig) -> Path:
     """Évalue le modèle selon la méthode de validation configurée."""
     _seed_global_generators(config.master_seed)
     data = load_competition_data(config)
+    if config.training_sample_size is not None:
+        data = sample_training_data(
+            data,
+            sample_size=config.training_sample_size,
+            master_seed=config.master_seed,
+        )
+        class_counts = data.target.value_counts().sort_index().to_dict()
+        print(
+            f"Échantillon stratifié : {len(data.features)} lignes; "
+            f"effectifs par classe : {class_counts}"
+        )
 
     if config.validation_method == "holdout":
         split = split_train_validation(

@@ -1,0 +1,27 @@
+{
+  "data_dir": "data",
+  "artifacts_dir": "artifacts",
+  "submissions_dir": "submissions",
+  "target": "accepted",
+  "id": "id",
+  "metric": "roc_auc",
+  "model": "svm_soft_margin",
+  "training_sample_size": 5000,
+  "model_params": {
+    "C": 1.0,
+    "kernel": "linear",
+    "probability": true
+  },
+  "validation_method": "stratified_kfold",
+  "validation_size": 0.2,
+  "n_splits": 5,
+  "master_seed": 42,
+  "preprocessing": {
+    "scale_numeric": true,
+    "add_missing_indicators": true,
+    "log1p_columns": [],
+    "missing_category_token": "__MISSING__",
+    "method": "default"
+  },
+  "run_name": "svm_linear_baseline_kfold"
+}

@@ -1,9 +1,17 @@
 # Donnees locales du projet (ne jamais versionner)
 /data/
 
-# Artefacts generes
+# Artefacts generes, sauf deux exemples documentes (configuration et metriques).
 /artifacts/*
-!/artifacts/.gitkeep
+!/artifacts/extra_trees_baseline_20261110T122459705051Z/
+!/artifacts/extra_trees_baseline_kfold_20261111T130026109281Z/
+/artifacts/extra_trees_baseline_20261110T122459705051Z/*
+!/artifacts/extra_trees_baseline_20261110T122459705051Z/config.json
+!/artifacts/extra_trees_baseline_20261110T122459705051Z/metrics.json
+/artifacts/extra_trees_baseline_kfold_20261111T130026109281Z/*
+!/artifacts/extra_trees_baseline_kfold_20261111T130026109281Z/config.json
+!/artifacts/extra_trees_baseline_kfold_20261111T130026109281Z/metrics.json
+
 /submissions/*
 !/submissions/.gitkeep
 

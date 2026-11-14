@@ -10,7 +10,7 @@ import numpy as np
 
 from src.artifacts import save_prediction_artifacts
 from src.config import ExperimentConfig, load_config
-from src.data import build_submission, load_competition_data
+from src.data import build_submission, load_competition_data, sample_training_data
 from src.models import build_model_pipeline, positive_class_probabilities
 
 
@@ -24,6 +24,17 @@ def run_prediction(config: ExperimentConfig) -> Path:
     """Réentraîne le modèle sur toutes les données étiquetées et prédit le test."""
     _seed_global_generators(config.master_seed)
     data = load_competition_data(config)
+    if config.training_sample_size is not None:
+        data = sample_training_data(
+            data,
+            sample_size=config.training_sample_size,
+            master_seed=config.master_seed,
+        )
+        class_counts = data.target.value_counts().sort_index().to_dict()
+        print(
+            f"Échantillon stratifié pour la soumission : {len(data.features)} lignes; "
+            f"effectifs par classe : {class_counts}"
+        )
 
     model = build_model_pipeline(config, data.features.columns)
     model.fit(data.features, data.target)

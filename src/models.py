@@ -8,6 +8,8 @@ import numpy as np
 from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
+from sklearn.svm import SVC
+from lightgbm import LGBMClassifier
 from xgboost import XGBClassifier
 
 from src.config import ExperimentConfig
@@ -19,6 +21,9 @@ MODEL_REGISTRY = {
     "random_forest": RandomForestClassifier,
     "extra_trees": ExtraTreesClassifier,
     "xgboost": XGBClassifier,
+    "lightgbm": LGBMClassifier,
+    "svm_soft_margin": SVC,
+    "svm_gaussian": SVC,
 }
 
 DEFAULT_MODEL_PARAMS: dict[str, dict[str, Any]] = {
@@ -52,6 +57,29 @@ DEFAULT_MODEL_PARAMS: dict[str, dict[str, Any]] = {
         "reg_lambda": 1.0,
         "tree_method": "hist",
         "n_jobs": 1,
+    },
+    "lightgbm": {
+        "objective": "binary",
+        "n_estimators": 500,
+        "learning_rate": 0.05,
+        "max_depth": 5,
+        "num_leaves": 31,
+        "subsample": 0.8,
+        "subsample_freq": 1,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 1.0,
+        "n_jobs": 1,
+    },
+    "svm_soft_margin": {
+        "C": 1.0,
+        "kernel": "linear",
+        "probability": True,
+    },
+    "svm_gaussian": {
+        "C": 1.0,
+        "gamma": "scale",
+        "kernel": "rbf",
+        "probability": True,
     },
 }
 

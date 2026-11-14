@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import re
 from typing import Any
@@ -16,7 +17,13 @@ SUPPORTED_MODELS = (
     "random_forest",
     "extra_trees",
     "xgboost",
+    "lightgbm",
+    "svm_soft_margin",
+    "svm_gaussian",
 )
+SVM_MODELS = ("svm_soft_margin", "svm_gaussian")
+
+SEARCH_DISTRIBUTIONS = ("uniform", "loguniform", "randint")
 
 
 @dataclass(frozen=True)
@@ -31,11 +38,20 @@ class PreprocessingConfig:
 
 
 @dataclass(frozen=True)
+class ParameterDistributionConfig:
+    """Décrit une distribution numérique de recherche d'hyperparamètre."""
+
+    distribution: str
+    low: int | float
+    high: int | float
+
+
+@dataclass(frozen=True)
 class HyperparameterSearchConfig:
     """Décrit les paramètres à explorer et le type de recherche."""
 
     method: str
-    parameters: dict[str, list[Any]]
+    parameters: dict[str, list[Any] | ParameterDistributionConfig]
     cv: int
     n_iter: int
     n_jobs: int
@@ -61,6 +77,7 @@ class ExperimentConfig:
     validation_method: str = "holdout"
     n_splits: int = 5
     hyperparameter_search: HyperparameterSearchConfig | None = None
+    training_sample_size: int | None = None
 
 
 def _project_path(value: Any, field_name: str) -> Path:
@@ -71,6 +88,16 @@ def _project_path(value: Any, field_name: str) -> Path:
     if not path.is_absolute():
         path = PROJECT_ROOT / path
     return path.resolve()
+
+
+def _is_finite_number(value: Any) -> bool:
+    """Indique si une valeur JSON est un nombre fini, sans accepter les booléens."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _parse_preprocessing(raw: Any) -> PreprocessingConfig:
@@ -143,18 +170,67 @@ def _parse_hyperparameter_search(raw: Any) -> HyperparameterSearchConfig | None:
     if method not in ("grid", "random"):
         raise ValueError("'hyperparameter_search.method' doit être 'grid' ou 'random'.")
 
-    parameters = raw.get("parameters")
-    if not isinstance(parameters, dict) or not parameters:
+    raw_parameters = raw.get("parameters")
+    if not isinstance(raw_parameters, dict) or not raw_parameters:
         raise ValueError("'hyperparameter_search.parameters' doit être un objet non vide.")
-    if any(
-        not isinstance(name, str)
-        or not name
-        or not isinstance(values, list)
-        or not values
-        for name, values in parameters.items()
-    ):
-        raise ValueError(
-            "Chaque paramètre de recherche doit avoir un nom et une liste de valeurs non vide."
+
+    parameters: dict[str, list[Any] | ParameterDistributionConfig] = {}
+    for name, values in raw_parameters.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("Chaque paramètre de recherche doit avoir un nom non vide.")
+        if isinstance(values, list):
+            if not values:
+                raise ValueError(
+                    "Chaque paramètre de recherche doit avoir une liste de valeurs non vide."
+                )
+            parameters[name] = values
+            continue
+        if not isinstance(values, dict):
+            raise ValueError(
+                "Chaque paramètre de recherche doit avoir une liste de valeurs ou une distribution."
+            )
+        if method == "grid":
+            raise ValueError(
+                "Les distributions ne sont prises en charge qu'avec method: 'random'."
+            )
+
+        allowed_distribution_fields = {"distribution", "low", "high"}
+        unknown_fields = set(values) - allowed_distribution_fields
+        if unknown_fields:
+            raise ValueError(
+                "Options de distribution inconnues : "
+                + ", ".join(sorted(unknown_fields))
+            )
+        if set(values) != allowed_distribution_fields:
+            raise ValueError(
+                "Une distribution doit définir 'distribution', 'low' et 'high'."
+            )
+
+        family = values["distribution"]
+        if not isinstance(family, str) or family not in SEARCH_DISTRIBUTIONS:
+            raise ValueError(
+                "Distribution inconnue : "
+                f"{family!r}. Choix : {', '.join(SEARCH_DISTRIBUTIONS)}."
+            )
+        low = values["low"]
+        high = values["high"]
+        if not _is_finite_number(low) or not _is_finite_number(high):
+            raise ValueError("Les bornes d'une distribution doivent être numériques et finies.")
+        if family == "randint" and (
+            not isinstance(low, int)
+            or not isinstance(high, int)
+            or isinstance(low, bool)
+            or isinstance(high, bool)
+        ):
+            raise ValueError("Les bornes de la distribution 'randint' doivent être des entiers.")
+        if low >= high:
+            raise ValueError("La borne 'low' d'une distribution doit être inférieure à 'high'.")
+        if family == "loguniform" and low <= 0:
+            raise ValueError("La borne 'low' de 'loguniform' doit être strictement positive.")
+        parameters[name] = ParameterDistributionConfig(
+            distribution=family,
+            low=low,
+            high=high,
         )
 
     cv = raw.get("cv", 3)
@@ -214,6 +290,7 @@ def load_config(config_path: str | Path) -> ExperimentConfig:
         "preprocessing",
         "hyperparameter_search",
         "run_name",
+        "training_sample_size",
     }
     unknown = set(raw) - allowed
     if unknown:
@@ -238,6 +315,19 @@ def load_config(config_path: str | Path) -> ExperimentConfig:
             f"Modèle inconnu : {model_name!r}. Choix : {', '.join(SUPPORTED_MODELS)}."
         )
 
+    training_sample_size = raw.get("training_sample_size")
+    if training_sample_size is not None:
+        if (
+            isinstance(training_sample_size, bool)
+            or not isinstance(training_sample_size, int)
+            or training_sample_size < 2
+        ):
+            raise ValueError("'training_sample_size' doit être un entier supérieur ou égal à 2.")
+        if model_name not in SVM_MODELS:
+            raise ValueError(
+                "'training_sample_size' est réservé aux modèles SVM."
+            )
+
     model_params = raw.get("model_params", {})
     if not isinstance(model_params, dict):
         raise ValueError("'model_params' doit être un objet JSON.")
@@ -246,6 +336,21 @@ def load_config(config_path: str | Path) -> ExperimentConfig:
             "Ne définissez pas 'random_state' dans model_params : "
             "master_seed le contrôle."
         )
+    fixed_svm_params = {
+        "svm_soft_margin": {"kernel": "linear", "probability": True},
+        "svm_gaussian": {"kernel": "rbf", "probability": True},
+    }.get(model_name, {})
+    for name, expected in fixed_svm_params.items():
+        configured_value = model_params.get(name, expected)
+        matches = (
+            type(configured_value) is bool and configured_value is expected
+            if isinstance(expected, bool)
+            else configured_value == expected
+        )
+        if name in model_params and not matches:
+            raise ValueError(
+                f"'{name}' est fixé à {expected!r} pour le modèle {model_name}."
+            )
 
     validation_size = raw.get("validation_size", 0.2)
     if (
@@ -281,6 +386,32 @@ def load_config(config_path: str | Path) -> ExperimentConfig:
     ):
         raise ValueError("'run_name' ne peut contenir que lettres, chiffres, '_' et '-'.")
 
+    hyperparameter_search = _parse_hyperparameter_search(
+        raw.get("hyperparameter_search")
+    )
+    for parameter_name, values in (
+        hyperparameter_search.parameters.items()
+        if hyperparameter_search is not None
+        else ()
+    ):
+        fixed_value = fixed_svm_params.get(
+            parameter_name.removeprefix("classifier__")
+        )
+        if fixed_value is None:
+            continue
+        if not isinstance(values, list) or any(
+            (
+                type(value) is not bool or value is not fixed_value
+                if isinstance(fixed_value, bool)
+                else value != fixed_value
+            )
+            for value in values
+        ):
+            raise ValueError(
+                f"Le paramètre de recherche '{parameter_name}' doit conserver "
+                f"la valeur {fixed_value!r} pour le modèle {model_name}."
+            )
+
     return ExperimentConfig(
         config_path=path,
         data_dir=_project_path(raw.get("data_dir", "data"), "data_dir"),
@@ -298,10 +429,9 @@ def load_config(config_path: str | Path) -> ExperimentConfig:
         preprocessing=_parse_preprocessing(raw.get("preprocessing", {})),
         validation_method=validation_method,
         n_splits=n_splits,
-        hyperparameter_search=_parse_hyperparameter_search(
-            raw.get("hyperparameter_search")
-        ),
+        hyperparameter_search=hyperparameter_search,
         run_name=run_name,
+        training_sample_size=training_sample_size,
     )
 
 

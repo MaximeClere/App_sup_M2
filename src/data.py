@@ -77,6 +77,41 @@ def load_competition_data(config: ExperimentConfig) -> CompetitionData:
     )
 
 
+def sample_training_data(
+    data: CompetitionData,
+    sample_size: int,
+    master_seed: int,
+) -> CompetitionData:
+    """Sélectionne un échantillon reproductible qui conserve la proportion des classes."""
+    row_count = len(data.features)
+    if sample_size > row_count:
+        raise ValueError(
+            f"'training_sample_size' vaut {sample_size}, mais train.csv ne contient "
+            f"que {row_count} lignes."
+        )
+    if sample_size == row_count:
+        return data
+    if sample_size < 2:
+        raise ValueError("'training_sample_size' doit être supérieur ou égal à 2.")
+
+    sampled_indices, _ = train_test_split(
+        np.arange(row_count),
+        train_size=sample_size,
+        random_state=master_seed,
+        shuffle=True,
+        stratify=data.target,
+    )
+    sampled_indices = np.sort(sampled_indices)
+    return CompetitionData(
+        features=data.features.iloc[sampled_indices].reset_index(drop=True),
+        target=data.target.iloc[sampled_indices].reset_index(drop=True),
+        test_features=data.test_features,
+        train_ids=data.train_ids.iloc[sampled_indices].reset_index(drop=True),
+        test_ids=data.test_ids,
+        submission_template=data.submission_template,
+    )
+
+
 def split_train_validation(
     data: CompetitionData,
     validation_size: float,
