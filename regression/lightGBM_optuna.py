@@ -25,6 +25,16 @@ for df in [train, test]:
     # paquet de features geo (paquet ayant minimisé la rmse locale)
     df['Is_Home_State'] = (df['State'] == df['MeetState']).astype(str)
     df['Travel_Type'] = df['Is_Home_Country'] + "_" + df['Is_Home_State']
+    
+    # paquet physics
+    df['Pseudo_BMI'] = df['BodyweightKg'] / ((df['WeightClass_Num'] + 10) ** 2)
+    df['Weight_Year_Ratio'] = df['BodyweightKg'] / (df['MeetYear'] - 1970)
+    
+    # paquet freq
+    freq_fed = df['Federation'].value_counts()
+    df['Fed_Popularity'] = df['Federation'].map(freq_fed)
+    freq_country = df['Country'].value_counts()
+    df['Country_Popularity'] = df['Country'].map(freq_country)
 
 categorical_features = [
     'Sex', 'Equipment', 'AgeClass', 'BirthYearClass', 'WeightClassKg', 
@@ -121,5 +131,5 @@ submission = pd.DataFrame({
     id_col: test[id_col],
     target: test_preds
 })
-submission.to_csv('regression/results/submission_lgbm_optuna.csv', index=False)
+submission.to_csv('regression/results/submission_lgbm_optuna_all_features.csv', index=False)
 print("Fichier de soumission 'submission_lgbm_optuna.csv' généré avec succès !")
